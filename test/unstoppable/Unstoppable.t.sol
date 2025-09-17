@@ -7,6 +7,7 @@ import {DamnValuableToken} from "../../src/DamnValuableToken.sol";
 import {UnstoppableVault, Owned} from "../../src/unstoppable/UnstoppableVault.sol";
 import {UnstoppableMonitor} from "../../src/unstoppable/UnstoppableMonitor.sol";
 
+
 contract UnstoppableChallenge is Test {
     address deployer = makeAddr("deployer");
     address player = makeAddr("player");
@@ -87,12 +88,23 @@ contract UnstoppableChallenge is Test {
         monitorContract.checkFlashLoan(100e18);
     }
 
-    /**
-     * CODE YOUR SOLUTION HERE
-     */
+    /*
+        The UnstoppableVault contract has a flaw in its flash loan implementation that allows an attacker to disrupt
+        the flash loan functionality by transferring tokens directly to the vault, bypassing the deposit function.
+        This direct transfer increases the vault's token balance without updating its internal accounting of total assets,
+        which is used to determine the maximum flash loan amount. As a result, any subsequent flash
+        loan requests will fail because the vault's internal state no longer matches its actual token balance.
+        The attacker can exploit this by transferring a small amount of tokens (e.g., 1 token) directly to the vault,
+        which is sufficient to break the flash loan functionality. Once the flash loan functionality is disrupted,
+        the UnstoppableMonitor contract detects this and pauses the vault to prevent further issues, transferring ownership of the vault to the deployer.   
+    */
     function test_unstoppable() public checkSolvedByPlayer {
         
+        // Token transfer directly to the vault, bypassing the deposit function
+        token.transfer(address(vault), 1);
+
     }
+    
 
     /**
      * CHECKS SUCCESS CONDITIONS - DO NOT TOUCH

