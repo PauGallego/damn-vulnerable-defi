@@ -2,18 +2,8 @@
 
 These are my solutions to the challenge; you can find them in the corresponding test file :)!
 
+You can find an explanation of the exploit itself in each test, within its dedicated comment section. Feel free to use any of this code for studying/teaching purposes.
 
-
-Damn Vulnerable DeFi is _the_ smart contract security playground for developers, security researchers and educators.
-
-Perhaps the most sophisticated vulnerable set of Solidity smart contracts ever witnessed, it features flashloans, price oracles, governance, NFTs, DEXs, lending pools, smart contract wallets, timelocks, vaults, meta-transactions, token distributions, upgradeability and more.
-
-Use Damn Vulnerable DeFi to:
-
-- Sharpen your auditing and bug-hunting skills.
-- Learn how to detect, test and fix flaws in realistic scenarios to become a security-minded developer.
-- Benchmark smart contract security tooling.
-- Create educational content on smart contract security with articles, tutorials, talks, courses, workshops, trainings, CTFs, etc. 
 
 ## Install
 
